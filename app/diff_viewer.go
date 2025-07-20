@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -12,9 +13,15 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
+	"github.com/google/uuid"
 	"github.com/muesli/reflow/ansi"
 	"github.com/muesli/reflow/truncate"
+	"github.com/muesli/reflow/wordwrap"
 )
+
+var sink, _ = os.Create(uuid.New().String() + ".log")
+var logger = log.NewWithOptions(sink, log.Options{Level: log.DebugLevel})
 
 // ViewMode represents the current viewing mode
 type ViewMode int
@@ -47,12 +54,10 @@ type LineMapping struct {
 
 // DiffViewer represents the diff viewer model
 type DiffViewer struct {
-	// Viewports for different modes
 	leftViewport    viewport.Model
 	rightViewport   viewport.Model
 	unifiedViewport viewport.Model
 
-	// Content and state
 	content         string
 	syntaxHighlight bool
 	showWhitespace  bool
@@ -60,7 +65,6 @@ type DiffViewer struct {
 	height          int
 	err             error
 
-	// Synchronized state
 	leftLines   []DiffLine
 	rightLines  []DiffLine
 	lineMapping []LineMapping
@@ -72,7 +76,6 @@ type DiffViewer struct {
 
 // NewDiffViewerFromEdits creates a new diff viewer from udiff.Edit operations
 func NewDiffViewerFromEdits(edits []udiff.Edit, filename, originalContent string, sideBySide, syntaxHighlight, showWhitespace bool) *DiffViewer {
-	// Convert edits to a unified diff format for compatibility with existing parsing
 	oldLabel := "a/" + filename
 	newLabel := "b/" + filename
 	content, err := udiff.ToUnified(oldLabel, newLabel, originalContent, edits, 3)
@@ -85,12 +88,10 @@ func NewDiffViewerFromEdits(edits []udiff.Edit, filename, originalContent string
 
 // NewDiffViewer creates a new diff viewer with the given content and options
 func NewDiffViewer(content string, sideBySide, syntaxHighlight, showWhitespace bool) *DiffViewer {
-	// Initialize viewports
 	leftVp := viewport.New(0, 0)
 	rightVp := viewport.New(0, 0)
 	unifiedVp := viewport.New(0, 0)
 
-	// Determine initial mode
 	mode := UnifiedMode
 	if sideBySide {
 		mode = SideBySideMode
@@ -205,13 +206,11 @@ func (dv *DiffViewer) View() string {
 
 	var b strings.Builder
 
-	// Title
 	title := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("205")).
 		Render("Git Diff Viewer")
 
-	// Determine actual mode based on terminal width
 	actualMode := "unified"
 	requestedMode := "unified"
 	if dv.mode == SideBySideMode {
@@ -344,28 +343,28 @@ func (dv *DiffViewer) renderDiff() {
 
 func (dv *DiffViewer) renderSideBySidePanes() {
 	leftWidth, rightWidth := dv.calculatePaneWidths()
-	
+
 	// Parse the unified diff content for better side-by-side rendering
 	lines := strings.Split(dv.content, "\n")
-	
+
 	var leftLines, rightLines []string
 	leftLineNum := 1
 	rightLineNum := 1
-	
+
 	// Parse header info for line numbers
 	var oldStart, newStart int
-	
+
 	// Group consecutive deletions and additions for alignment
 	i := 0
 	for i < len(lines) {
 		line := lines[i]
-		
+
 		// Skip empty lines early to prevent bounds issues
 		if line == "" {
 			i++
 			continue
 		}
-		
+
 		// Parse hunk headers to get starting line numbers
 		if strings.HasPrefix(line, "@@") {
 			// Extract line numbers from hunk header: @@ -oldStart,oldCount +newStart,newCount @@
@@ -376,7 +375,7 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 					fmt.Sscanf(parts[1], "-%d", &oldStart)
 					leftLineNum = oldStart
 				}
-				// Parse +newStart  
+				// Parse +newStart
 				if strings.HasPrefix(parts[2], "+") {
 					fmt.Sscanf(parts[2], "+%d", &newStart)
 					rightLineNum = newStart
@@ -392,9 +391,9 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 			i++
 			continue
 		}
-		
-		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") || 
-		   strings.HasPrefix(line, "diff --git") {
+
+		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") ||
+			strings.HasPrefix(line, "diff --git") {
 			// File headers go to both sides without line numbers
 			headerStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("33")).
@@ -405,7 +404,7 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 			i++
 			continue
 		}
-		
+
 		if strings.HasPrefix(line, "-") {
 			// Collect all consecutive deletions
 			var deletions []string
@@ -414,107 +413,144 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 				deletions = append(deletions, lines[j])
 				j++
 			}
-			
+
 			// Collect all consecutive additions that follow
 			var additions []string
 			for j < len(lines) && strings.HasPrefix(lines[j], "+") {
 				additions = append(additions, lines[j])
 				j++
 			}
-			
+
 			// Align deletions and additions
-			maxChanges := len(deletions)
-			if len(additions) > maxChanges {
-				maxChanges = len(additions)
-			}
-			
-			for k := 0; k < maxChanges; k++ {
-				var leftContent, rightContent string
-				
-				// Handle deletion
-				if k < len(deletions) {
-					content := ""
-					if len(deletions[k]) > 1 {
-						content = deletions[k][1:] // Remove the '-' prefix
-					}
-					
-					// Skip whitespace-only changes if showWhitespace is false
-					if !dv.showWhitespace && strings.TrimSpace(content) == "" {
-						leftLineNum++
-						continue
-					}
-					
-					// Apply syntax highlighting if enabled
-					if dv.syntaxHighlight {
-						content = dv.applySyntaxHighlighting(content, "go")
-					}
-					
-					deleteStyle := lipgloss.NewStyle().
-						Foreground(lipgloss.Color("196")).
-						Background(lipgloss.Color("52"))
-					
-					lineNumStr := fmt.Sprintf("%4d", leftLineNum)
-					displayLine := fmt.Sprintf("%s │ -%s", lineNumStr, content)
-					leftContent = deleteStyle.Render(displayLine)
+			// maxChanges := len(deletions)
+			// if len(additions) > maxChanges {
+			// 	maxChanges = len(additions)
+			// }
+
+			// Process deletions and additions separately to handle wrapping properly
+			var leftWrappedLines, rightWrappedLines []string
+
+			// Handle all deletions
+			for _, deletion := range deletions {
+				content := ""
+				if len(deletion) > 1 {
+					content = deletion[1:] // Remove the '-' prefix
+				}
+
+				// Skip whitespace-only changes if showWhitespace is false
+				// But preserve genuinely empty lines (which have content == "")
+				if !dv.showWhitespace && content != "" && strings.TrimSpace(content) == "" {
 					leftLineNum++
+					continue
 				}
-				
-				// Handle addition
-				if k < len(additions) {
-					content := ""
-					if len(additions[k]) > 1 {
-						content = additions[k][1:] // Remove the '+' prefix
-					}
-					
-					// Skip whitespace-only changes if showWhitespace is false
-					if !dv.showWhitespace && strings.TrimSpace(content) == "" {
-						rightLineNum++
-						continue
-					}
-					
-					// Apply syntax highlighting if enabled
-					if dv.syntaxHighlight {
-						content = dv.applySyntaxHighlighting(content, "go")
-					}
-					
-					addStyle := lipgloss.NewStyle().
-						Foreground(lipgloss.Color("46")).
-						Background(lipgloss.Color("22"))
-					
-					lineNumStr := fmt.Sprintf("%4d", rightLineNum)
-					displayLine := fmt.Sprintf("%s │ +%s", lineNumStr, content)
-					rightContent = addStyle.Render(displayLine)
-					rightLineNum++
+
+				// Apply syntax highlighting if enabled
+				if dv.syntaxHighlight {
+					content = dv.applySyntaxHighlighting(content, "go")
 				}
-				
-				leftLines = append(leftLines, dv.fitToWidth(leftContent, leftWidth))
-				rightLines = append(rightLines, dv.fitToWidth(rightContent, rightWidth))
+
+				deleteLineNumStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("196")).
+					Background(lipgloss.Color("52"))
+				deleteBgStyle := lipgloss.NewStyle().
+					Background(lipgloss.Color("52"))
+
+				// Use wrapContentWithStyle for proper wrapping
+				wrappedLines := dv.wrapContentWithStyle(leftLineNum, " │ -", content, deleteLineNumStyle, deleteBgStyle, leftWidth)
+				leftWrappedLines = append(leftWrappedLines, wrappedLines...)
+				leftLineNum++
 			}
-			
+
+			// Handle all additions
+			for _, addition := range additions {
+				content := ""
+				if len(addition) > 1 {
+					content = addition[1:] // Remove the '+' prefix
+				}
+
+				// Skip whitespace-only changes if showWhitespace is false
+				// But preserve genuinely empty lines (which have content == "")
+				if !dv.showWhitespace && content != "" && strings.TrimSpace(content) == "" {
+					rightLineNum++
+					continue
+				}
+
+				// Apply syntax highlighting if enabled
+				if dv.syntaxHighlight {
+					content = dv.applySyntaxHighlighting(content, "go")
+				}
+
+				addLineNumStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("46")).
+					Background(lipgloss.Color("22"))
+				addBgStyle := lipgloss.NewStyle().
+					Background(lipgloss.Color("22"))
+
+				// Use wrapContentWithStyle for proper wrapping
+				wrappedLines := dv.wrapContentWithStyle(rightLineNum, " │ +", content, addLineNumStyle, addBgStyle, rightWidth)
+				rightWrappedLines = append(rightWrappedLines, wrappedLines...)
+				rightLineNum++
+			}
+
+			// Balance wrapped lines and add them to main arrays
+			maxWrappedLines := len(leftWrappedLines)
+			if len(rightWrappedLines) > maxWrappedLines {
+				maxWrappedLines = len(rightWrappedLines)
+			}
+
+			// Pad shorter side with empty lines
+			for len(leftWrappedLines) < maxWrappedLines {
+				leftWrappedLines = append(leftWrappedLines, dv.fitToWidth("", leftWidth))
+			}
+			for len(rightWrappedLines) < maxWrappedLines {
+				rightWrappedLines = append(rightWrappedLines, dv.fitToWidth("", rightWidth))
+			}
+
+			// Add all balanced lines
+			leftLines = append(leftLines, leftWrappedLines...)
+			rightLines = append(rightLines, rightWrappedLines...)
+
 			i = j // Move to next unprocessed line
-			
+
 		} else if strings.HasPrefix(line, " ") {
 			// Context lines go to both sides
 			content := ""
 			if len(line) > 1 {
 				content = line[1:] // Remove the ' ' prefix
 			}
-			
+
 			// Apply syntax highlighting if enabled
 			if dv.syntaxHighlight {
 				content = dv.applySyntaxHighlighting(content, "go")
 			}
-			
-			// Format with line numbers for both sides
-			leftLineNumStr := fmt.Sprintf("%4d", leftLineNum)
-			rightLineNumStr := fmt.Sprintf("%4d", rightLineNum)
-			
-			leftDisplayLine := fmt.Sprintf("%s │  %s", leftLineNumStr, content)
-			rightDisplayLine := fmt.Sprintf("%s │  %s", rightLineNumStr, content)
-			
-			leftLines = append(leftLines, dv.fitToWidth(leftDisplayLine, leftWidth))
-			rightLines = append(rightLines, dv.fitToWidth(rightDisplayLine, rightWidth))
-			
+
+			// Style for context lines
+			contextLineNumStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("241"))
+			contextBgStyle := lipgloss.NewStyle() // No special background for context
+
+			// Use wrapContentWithStyle for both sides
+			leftWrappedLines := dv.wrapContentWithStyle(leftLineNum, " │  ", content, contextLineNumStyle, contextBgStyle, leftWidth)
+			rightWrappedLines := dv.wrapContentWithStyle(rightLineNum, " │  ", content, contextLineNumStyle, contextBgStyle, rightWidth)
+
+			// Balance wrapped lines for context (should be same content, so same number of lines)
+			maxWrappedLines := len(leftWrappedLines)
+			if len(rightWrappedLines) > maxWrappedLines {
+				maxWrappedLines = len(rightWrappedLines)
+			}
+
+			// Pad shorter side with empty lines (shouldn't be needed for context, but safety)
+			for len(leftWrappedLines) < maxWrappedLines {
+				leftWrappedLines = append(leftWrappedLines, dv.fitToWidth("", leftWidth))
+			}
+			for len(rightWrappedLines) < maxWrappedLines {
+				rightWrappedLines = append(rightWrappedLines, dv.fitToWidth("", rightWidth))
+			}
+
+			// Add all wrapped lines
+			leftLines = append(leftLines, leftWrappedLines...)
+			rightLines = append(rightLines, rightWrappedLines...)
+
 			leftLineNum++
 			rightLineNum++
 			i++
@@ -523,7 +559,7 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 			i++
 		}
 	}
-	
+
 	// Balance the lines
 	maxLines := len(leftLines)
 	if len(rightLines) > maxLines {
@@ -781,25 +817,68 @@ func getFileExtension(_ int) string {
 	return "txt"
 }
 
-
 // fitToWidth ensures text fits exactly within the specified width
 func (dv *DiffViewer) fitToWidth(text string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	
+
 	// Get the visual width (accounts for ANSI escape codes)
 	visualWidth := ansi.PrintableRuneWidth(text)
-	
+
 	// Truncate if too long
 	if visualWidth > width {
 		return truncate.String(text, uint(width))
 	}
-	
+
 	// Pad if too short
 	if visualWidth < width {
 		return text + strings.Repeat(" ", width-visualWidth)
 	}
-	
+
 	return text
+}
+
+// wrapContentWithStyle wraps text content while preserving line prefix and background styling
+func (dv *DiffViewer) wrapContentWithStyle(lineNum int, prefix string, content string, prefixStyle, contentBgStyle lipgloss.Style, contentWidth int) []string {
+	if contentWidth <= 0 {
+		return []string{""}
+	}
+
+	// Calculate the width available for actual content (excluding line number and prefix)
+	lineNumStr := fmt.Sprintf("%4d", lineNum)
+	prefixWithSeparator := prefix
+	prefixVisualWidth := ansi.PrintableRuneWidth(lineNumStr + prefixWithSeparator)
+	actualContentWidth := contentWidth - prefixVisualWidth
+
+	if actualContentWidth <= 10 { // Minimum content width
+		// If too narrow, just truncate
+		styledLineNum := prefixStyle.Render(lineNumStr)
+		styledPrefix := prefixStyle.Render(prefixWithSeparator)
+		truncatedContent := truncate.String(content, uint(actualContentWidth))
+		styledContent := contentBgStyle.Render(truncatedContent)
+		return []string{styledLineNum + styledPrefix + styledContent}
+	}
+
+	// Wrap the content
+	wrappedLines := wordwrap.String(content, actualContentWidth)
+	lines := strings.Split(wrappedLines, "\n")
+
+	var result []string
+	for i, line := range lines {
+		if i == 0 {
+			// First line: include line number and prefix
+			styledLineNum := prefixStyle.Render(lineNumStr)
+			styledPrefix := prefixStyle.Render(prefixWithSeparator)
+			styledContent := contentBgStyle.Render(line)
+			result = append(result, styledLineNum+styledPrefix+styledContent)
+		} else {
+			// Continuation lines: padding + content
+			padding := strings.Repeat(" ", prefixVisualWidth)
+			styledContent := contentBgStyle.Render(line)
+			result = append(result, padding+styledContent)
+		}
+	}
+
+	return result
 }
