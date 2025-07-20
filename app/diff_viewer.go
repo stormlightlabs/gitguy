@@ -47,7 +47,7 @@ type DiffViewer struct {
 	leftViewport    viewport.Model
 	rightViewport   viewport.Model
 	unifiedViewport viewport.Model
-	
+
 	// Content and state
 	content         string
 	syntaxHighlight bool
@@ -56,15 +56,15 @@ type DiffViewer struct {
 	height          int
 	files           []*gitdiff.File
 	err             error
-	
+
 	// Synchronized state
-	leftLines       []DiffLine
-	rightLines      []DiffLine
-	lineMapping     []LineMapping
-	
+	leftLines   []DiffLine
+	rightLines  []DiffLine
+	lineMapping []LineMapping
+
 	// Current state
-	mode            ViewMode
-	scrollSync      bool
+	mode       ViewMode
+	scrollSync bool
 }
 
 // NewDiffViewer creates a new diff viewer with the given content and options
@@ -159,14 +159,14 @@ func (dv *DiffViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update the appropriate viewport based on current mode
 	if dv.mode == SideBySideMode {
 		var leftCmd, rightCmd tea.Cmd
-		
+
 		// Store previous scroll positions for sync detection
 		prevLeftY := dv.leftViewport.YOffset
 		prevRightY := dv.rightViewport.YOffset
-		
+
 		dv.leftViewport, leftCmd = dv.leftViewport.Update(msg)
 		dv.rightViewport, rightCmd = dv.rightViewport.Update(msg)
-		
+
 		// Implement synchronized scrolling if enabled
 		if dv.scrollSync {
 			// Check if left viewport scrolled and sync right viewport
@@ -178,7 +178,7 @@ func (dv *DiffViewer) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				dv.leftViewport.YOffset = dv.rightViewport.YOffset
 			}
 		}
-		
+
 		return dv, tea.Batch(leftCmd, rightCmd)
 	} else {
 		dv.unifiedViewport, cmd = dv.unifiedViewport.Update(msg)
@@ -223,7 +223,7 @@ func (dv *DiffViewer) View() string {
 	if dv.mode == SideBySideMode {
 		syncInfo = fmt.Sprintf(" | Scroll sync: %t", dv.scrollSync)
 	}
-	
+
 	subtitle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241")).
 		Render(fmt.Sprintf("%s | Syntax highlighting: %t | Whitespace: %t%s | Width: %d", modeInfo, dv.syntaxHighlight, dv.showWhitespace, syncInfo, dv.width))
@@ -234,11 +234,11 @@ func (dv *DiffViewer) View() string {
 	if dv.mode == SideBySideMode {
 		leftContent := dv.leftViewport.View()
 		rightContent := dv.rightViewport.View()
-		
+
 		// Split into lines
 		leftLines := strings.Split(leftContent, "\n")
 		rightLines := strings.Split(rightContent, "\n")
-		
+
 		// Remove empty trailing lines
 		for len(leftLines) > 0 && strings.TrimSpace(leftLines[len(leftLines)-1]) == "" {
 			leftLines = leftLines[:len(leftLines)-1]
@@ -246,13 +246,13 @@ func (dv *DiffViewer) View() string {
 		for len(rightLines) > 0 && strings.TrimSpace(rightLines[len(rightLines)-1]) == "" {
 			rightLines = rightLines[:len(rightLines)-1]
 		}
-		
+
 		// Interleave the content naturally
 		maxLines := len(leftLines)
 		if len(rightLines) > maxLines {
 			maxLines = len(rightLines)
 		}
-		
+
 		for i := 0; i < maxLines; i++ {
 			left := ""
 			right := ""
@@ -262,7 +262,7 @@ func (dv *DiffViewer) View() string {
 			if i < len(rightLines) {
 				right = rightLines[i]
 			}
-			
+
 			// Only show the separator if we have content on at least one side
 			if left != "" || right != "" {
 				line := left + " │ " + right
@@ -333,15 +333,15 @@ func (dv *DiffViewer) renderDiff() {
 // renderSideBySidePanes renders content for dual viewports
 func (dv *DiffViewer) renderSideBySidePanes() {
 	leftWidth, rightWidth := dv.calculatePaneWidths()
-	
+
 	var leftContent, rightContent strings.Builder
-	
+
 	for fileIndex, file := range dv.files {
 		// Render file header for both sides
 		fileHeader := dv.renderFileHeader(file)
 		leftContent.WriteString(fileHeader)
 		rightContent.WriteString(fileHeader)
-		
+
 		// Process each fragment
 		for _, fragment := range file.TextFragments {
 			filename := file.NewName
@@ -349,12 +349,12 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 				filename = file.OldName
 			}
 			leftLines, rightLines := dv.parseFragmentForSideBySide(fragment, leftWidth, rightWidth, filename)
-			
+
 			// Fragment header
 			fragmentHeader := dv.renderFragmentHeader(fragment)
 			leftContent.WriteString(fragmentHeader)
 			rightContent.WriteString(fragmentHeader)
-			
+
 			// Render lines for each side
 			for _, line := range leftLines {
 				leftContent.WriteString(line + "\n")
@@ -363,7 +363,7 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 				rightContent.WriteString(line + "\n")
 			}
 		}
-		
+
 		// Only add separator between files, not after the last file
 		if fileIndex < len(dv.files)-1 {
 			// Add a visual separator line between files
@@ -375,20 +375,19 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 			rightContent.WriteString("\n" + separator + "\n")
 		}
 	}
-	
+
 	dv.leftViewport.SetContent(leftContent.String())
 	dv.rightViewport.SetContent(rightContent.String())
 }
 
-
 // parseFragmentForSideBySide parses a diff fragment into separate left/right line arrays
-func (dv *DiffViewer) parseFragmentForSideBySide(fragment *gitdiff.TextFragment, leftWidth, rightWidth int, filename string) ([]string, []string) {
+func (dv *DiffViewer) parseFragmentForSideBySide(fragment *gitdiff.TextFragment, _, _ int, filename string) ([]string, []string) {
 	var leftLines, rightLines []string
-	
+
 	// Track line numbers for both sides
 	leftLineNum := fragment.OldPosition
 	rightLineNum := fragment.NewPosition
-	
+
 	for _, line := range fragment.Lines {
 		// Skip whitespace-only changes if showWhitespace is false
 		if !dv.showWhitespace && dv.isWhitespaceOnlyChange(line) {
@@ -404,7 +403,7 @@ func (dv *DiffViewer) parseFragmentForSideBySide(fragment *gitdiff.TextFragment,
 			}
 			continue
 		}
-		
+
 		switch line.Op {
 		case gitdiff.OpDelete:
 			// Only show on left side with line number
@@ -412,118 +411,69 @@ func (dv *DiffViewer) parseFragmentForSideBySide(fragment *gitdiff.TextFragment,
 			if dv.syntaxHighlight && filename != "" {
 				content = dv.applySyntaxHighlighting(content, filename)
 			}
-			
+
 			deleteStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("196")).
 				Background(lipgloss.Color("52"))
-			
+
 			// Format with line number
 			lineNumStr := fmt.Sprintf("│%4d│", leftLineNum)
 			displayLine := lineNumStr + deleteStyle.Render("-"+content)
 			leftLines = append(leftLines, displayLine)
 			leftLineNum++
-			
+
 		case gitdiff.OpAdd:
 			// Only show on right side with line number
 			content := line.Line
 			if dv.syntaxHighlight && filename != "" {
 				content = dv.applySyntaxHighlighting(content, filename)
 			}
-			
+
 			addStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("46")).
 				Background(lipgloss.Color("22"))
-			
+
 			// Format with line number
 			lineNumStr := fmt.Sprintf("│%4d│", rightLineNum)
 			displayLine := lineNumStr + addStyle.Render("+"+content)
 			rightLines = append(rightLines, displayLine)
 			rightLineNum++
-			
+
 		case gitdiff.OpContext:
 			// Show on both sides with line numbers
 			content := line.Line
 			if dv.syntaxHighlight && filename != "" {
 				content = dv.applySyntaxHighlighting(content, filename)
 			}
-			
+
 			// Format with line numbers for both sides
 			leftLineNumStr := fmt.Sprintf("│%4d│", leftLineNum)
 			rightLineNumStr := fmt.Sprintf("│%4d│", rightLineNum)
-			
+
 			leftDisplayLine := leftLineNumStr + " " + content
 			rightDisplayLine := rightLineNumStr + " " + content
-			
+
 			leftLines = append(leftLines, leftDisplayLine)
 			rightLines = append(rightLines, rightDisplayLine)
-			
+
 			leftLineNum++
 			rightLineNum++
 		}
 	}
-	
-	return leftLines, rightLines
-}
 
-// renderParallelChanges renders deletions and additions in parallel to minimize empty lines
-func (dv *DiffViewer) renderParallelChanges(deletions, additions []gitdiff.Line, leftWidth, rightWidth int, leftLines, rightLines *[]string) {
-	deleteStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("196")).
-		Background(lipgloss.Color("52"))
-	
-	addStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("46")).
-		Background(lipgloss.Color("22"))
-	
-	// Process deletions
-	var leftContent []string
-	for _, line := range deletions {
-		content := line.Line
-		wrappedLines := wrapText(content, leftWidth-1) // Reserve space for "-" prefix
-		for _, wrapped := range wrappedLines {
-			leftContent = append(leftContent, deleteStyle.Render("-"+wrapped))
-		}
-	}
-	
-	// Process additions
-	var rightContent []string
-	for _, line := range additions {
-		content := line.Line
-		wrappedLines := wrapText(content, rightWidth-1) // Reserve space for "+" prefix
-		for _, wrapped := range wrappedLines {
-			rightContent = append(rightContent, addStyle.Render("+"+wrapped))
-		}
-	}
-	
-	// Always keep both arrays in sync by determining the max length needed
-	maxLen := len(leftContent)
-	if len(rightContent) > maxLen {
-		maxLen = len(rightContent)
-	}
-	
-	// Pad both arrays to the same length if needed
-	for len(leftContent) < maxLen {
-		leftContent = append(leftContent, "")
-	}
-	for len(rightContent) < maxLen {
-		rightContent = append(rightContent, "")
-	}
-	
-	// Append to main arrays - this ensures both arrays grow by the same amount
-	*leftLines = append(*leftLines, leftContent...)
-	*rightLines = append(*rightLines, rightContent...)
+	return leftLines, rightLines
 }
 
 // renderFileHeader renders just the file header portion
 func (dv *DiffViewer) renderFileHeader(file *gitdiff.File) string {
 	var b strings.Builder
-	
+
 	// File header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("33")).
 		Background(lipgloss.Color("236"))
-	
+
 	oldName := file.OldName
 	newName := file.NewName
 	if oldName == "" {
@@ -532,24 +482,24 @@ func (dv *DiffViewer) renderFileHeader(file *gitdiff.File) string {
 	if newName == "" {
 		newName = "/dev/null"
 	}
-	
+
 	header := fmt.Sprintf(" diff --git a/%s b/%s ", oldName, newName)
 	b.WriteString(headerStyle.Render(header) + "\n")
-	
+
 	// File mode changes
 	if file.OldMode != 0 || file.NewMode != 0 {
 		modeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 		b.WriteString(modeStyle.Render(fmt.Sprintf("old mode %o", file.OldMode)) + "\n")
 		b.WriteString(modeStyle.Render(fmt.Sprintf("new mode %o", file.NewMode)) + "\n")
 	}
-	
+
 	// File paths
 	pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 	if file.NewName != "" {
 		b.WriteString(pathStyle.Render("--- a/"+oldName) + "\n")
 		b.WriteString(pathStyle.Render("+++ b/"+newName) + "\n")
 	}
-	
+
 	return b.String()
 }
 
@@ -558,11 +508,11 @@ func (dv *DiffViewer) renderFragmentHeader(fragment *gitdiff.TextFragment) strin
 	headerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("6")).
 		Bold(true)
-	
+
 	header := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
 		fragment.OldPosition, fragment.OldLines,
 		fragment.NewPosition, fragment.NewLines)
-	
+
 	result := headerStyle.Render(header)
 	if fragment.Comment != "" {
 		result += " " + fragment.Comment
@@ -653,7 +603,7 @@ func (dv *DiffViewer) renderUnified(fragment *gitdiff.TextFragment, filename str
 		if !dv.showWhitespace && dv.isWhitespaceOnlyChange(line) {
 			continue
 		}
-		
+
 		styledLine := dv.styleDiffLine(line, filename)
 
 		// Check if line needs wrapping using reflow's ANSI-aware length check

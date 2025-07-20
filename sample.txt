@@ -1,0 +1,14 @@
+@@ -56,15 +56,15 @@ type DiffViewer struct {                                 │ @@ -56,15 +56,15 @@ type DiffViewer struct {
+│  56│     height          int                                               │ │  56│     height          int
+                                                                             │
+│  57│     files           []*gitdiff.File                                   │ │  57│     files           []*gitdiff.File
+                                                                             │
+│  58│     err             error                                             │ │  58│     err             error
+                                                                             │
+│  60│     // Synchronized state                                             │ │  60│     // Synchronized state
+                                                                             │
+│  61│-    leftLines       []DiffLine                                        │ │  61│+    leftLines   []DiffLine
+                                                                             │
+│  62│-    rightLines      []DiffLine                                        │ │  62│+    rightLines  []DiffLine
+                                                                             │
+│  63│-    lineMapping     []LineMapping                                     │ │  63│+    lineMapping []LineMapping
