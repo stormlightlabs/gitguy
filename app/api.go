@@ -38,7 +38,7 @@ func (l llModel) String() string {
 	case kimiK2:
 		return "moonshotai/kimi-k2:free"
 	default:
-		return "moonshotai/kimi-k2:free"
+		return "deepseek/deepseek-chat-v3-0324:free"
 	}
 }
 
@@ -94,7 +94,7 @@ type LLMResult struct {
 func GenerateCommitAndPR(diff string) (*LLMResult, error) {
 	modelName := viper.GetString("model")
 	if modelName == "" {
-		modelName = "kimi-k2"
+		modelName = deepseekR1.String()
 	}
 	return GenerateCommitAndPRWithModel(diff, ParseModel(modelName))
 }
