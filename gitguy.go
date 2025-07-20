@@ -44,7 +44,7 @@ func main() {
 	rootCmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Skip TUI and run in non-interactive mode")
 	rootCmd.Flags().StringVar(&apiKey, "api-key", "", "OpenRouter API key")
 	rootCmd.Flags().StringVar(&prTemplate, "pr-template", "", "Path to PR template markdown file")
-	rootCmd.Flags().StringVar(&model, "model", "kimi-k2", "LLM model to use (deepseek-v3, deepseek-r1, deepseek-r1-0528, kimi-k2)")
+	rootCmd.Flags().StringVar(&model, "model", app.DeepseekV3.String(), "LLM model to use (deepseek-v3, deepseek-r1, deepseek-r1-0528, kimi-k2)")
 
 	viper.BindPFlag("ref-current", rootCmd.Flags().Lookup("ref-current"))
 	viper.BindPFlag("ref-incoming", rootCmd.Flags().Lookup("ref-incoming"))

@@ -21,21 +21,21 @@ var systemPrompt string
 type llModel int
 
 const (
-	deepseekV3 llModel = iota
-	deepseekR10528
-	deepseekR1
-	kimiK2
+	DeepseekV3 llModel = iota
+	DeepseekR10528
+	DeepseekR1
+	KimiK2
 )
 
 func (l llModel) String() string {
 	switch l {
-	case deepseekV3:
+	case DeepseekV3:
 		return "deepseek/deepseek-chat-v3-0324:free"
-	case deepseekR1:
+	case DeepseekR1:
 		return "deepseek/deepseek-r1:free"
-	case deepseekR10528:
+	case DeepseekR10528:
 		return "deepseek/deepseek-r1-0528:free"
-	case kimiK2:
+	case KimiK2:
 		return "moonshotai/kimi-k2:free"
 	default:
 		return "deepseek/deepseek-chat-v3-0324:free"
@@ -46,15 +46,23 @@ func (l llModel) String() string {
 func ParseModel(modelName string) llModel {
 	switch modelName {
 	case "deepseek-v3":
-		return deepseekV3
+		return DeepseekV3
+	case DeepseekV3.String():
+		return DeepseekV3
 	case "deepseek-r1":
-		return deepseekR1
+		return DeepseekR1
+	case DeepseekR1.String():
+		return DeepseekR1
 	case "deepseek-r1-0528":
-		return deepseekR10528
+		return DeepseekR10528
+	case DeepseekR10528.String():
+		return DeepseekR10528
 	case "kimi-k2":
-		return kimiK2
+		return KimiK2
+	case KimiK2.String():
+		return KimiK2
 	default:
-		return kimiK2
+		return DeepseekV3
 	}
 }
 
@@ -89,12 +97,22 @@ type LLMResult struct {
 	PRDescription string
 }
 
+type OpenRouterError struct {
+	Error struct {
+		Message  string `json:"message"`
+		Code     int32  `json:"code"`
+		Metadata struct {
+			Raw string `json:"raw"`
+		} `json:"metadata"`
+	} `json:"error"`
+}
+
 // GenerateCommitAndPR sends a git diff to the OpenRouter API and returns a generated
 // commit message and PR description as an [LLMResult]
 func GenerateCommitAndPR(diff string) (*LLMResult, error) {
 	modelName := viper.GetString("model")
 	if modelName == "" {
-		modelName = deepseekR1.String()
+		modelName = DeepseekR1.String()
 	}
 	return GenerateCommitAndPRWithModel(diff, ParseModel(modelName))
 }
@@ -186,7 +204,15 @@ func GenerateCommitAndPRWithModel(diff string, model llModel) (*LLMResult, error
 		if logger != nil {
 			logger.LogAPICall(requestUUID, req, nil, fmt.Errorf("HTTP %d: %s", statusCode, string(body)), statusCode, duration)
 		}
-		return nil, fmt.Errorf("API request failed with status %d: %s", statusCode, string(body))
+
+		var routerError OpenRouterError
+
+		json.Unmarshal(body, &routerError)
+		formatted, _ := json.MarshalIndent(string(body), "", "  ")
+		serialized, _ := json.MarshalIndent(routerError, "", "  ")
+		return nil, fmt.Errorf("API request failed with status %d\n%s\nFormatted: %s\nSerialized:%s",
+			statusCode, string(body), formatted, serialized,
+		)
 	}
 
 	var parsedResp APIResponse

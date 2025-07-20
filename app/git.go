@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -180,4 +181,75 @@ func (g *GitRepo) GetWorkingTreeDiff() (string, error) {
 	}
 
 	return diff.String(), nil
+}
+
+// GetStagedDiff generates a diff between HEAD and staged files.
+func (g *GitRepo) GetStagedDiff() (string, error) {
+	// First check if there are any staged changes
+	hasStagedChanges, err := g.HasStagedChanges()
+	if err != nil {
+		return "", err
+	}
+
+	if !hasStagedChanges {
+		return "", nil
+	}
+
+	// Use git CLI to get staged diff since go-git's index handling is complex
+	worktree, err := g.repo.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	workdir := worktree.Filesystem.Root()
+	
+	// Run git diff --cached to get staged changes
+	cmd := exec.Command("git", "diff", "--cached")
+	cmd.Dir = workdir
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get staged diff: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// HasStagedChanges checks if there are any staged changes in the repository.
+func (g *GitRepo) HasStagedChanges() (bool, error) {
+	worktree, err := g.repo.Worktree()
+	if err != nil {
+		return false, fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	status, err := worktree.Status()
+	if err != nil {
+		return false, fmt.Errorf("failed to get status: %w", err)
+	}
+
+	for _, fileStatus := range status {
+		if fileStatus.Staging != '?' && fileStatus.Staging != ' ' {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// GetStagedRef returns a special RefInfo for staged files if any exist.
+func (g *GitRepo) GetStagedRef() (*RefInfo, error) {
+	hasStagedChanges, err := g.HasStagedChanges()
+	if err != nil {
+		return nil, err
+	}
+
+	if !hasStagedChanges {
+		return nil, nil
+	}
+
+	return &RefInfo{
+		Name: "Staged Changes",
+		Hash: "staged",
+		Type: "staged",
+	}, nil
 }

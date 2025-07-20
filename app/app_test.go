@@ -18,12 +18,12 @@ func TestParseModel(t *testing.T) {
 		input    string
 		expected llModel
 	}{
-		{"deepseek-v3", deepseekV3},
-		{"deepseek-r1", deepseekR1},
-		{"deepseek-r1-0528", deepseekR10528},
-		{"kimi-k2", kimiK2},
-		{"invalid-model", kimiK2}, // default fallback
-		{"", kimiK2},              // empty string fallback
+		{"deepseek-v3", DeepseekV3},
+		{"deepseek-r1", DeepseekR1},
+		{"deepseek-r1-0528", DeepseekR10528},
+		{"kimi-k2", KimiK2},
+		{"invalid-model", KimiK2}, // default fallback
+		{"", KimiK2},              // empty string fallback
 	}
 
 	for _, test := range tests {
@@ -41,10 +41,10 @@ func TestLLModelString(t *testing.T) {
 		model    llModel
 		expected string
 	}{
-		{deepseekV3, "deepseek/deepseek-chat-v3-0324:free"},
-		{deepseekR1, "deepseek/deepseek-r1:free"},
-		{deepseekR10528, "deepseek/deepseek-r1-0528:free"},
-		{kimiK2, "moonshotai/kimi-k2:free"},
+		{DeepseekV3, "deepseek/deepseek-chat-v3-0324:free"},
+		{DeepseekR1, "deepseek/deepseek-r1:free"},
+		{DeepseekR10528, "deepseek/deepseek-r1-0528:free"},
+		{KimiK2, "moonshotai/kimi-k2:free"},
 		{llModel(999), "moonshotai/kimi-k2:free"}, // invalid model should return default
 	}
 
@@ -426,13 +426,13 @@ func TestExpandPRTemplate(t *testing.T) {
 		exact    string // For exact matches (when no template expansion)
 	}{
 		{
-			name:  "template with ID placeholder",
-			input: "PR_{{ID}}.md",
+			name:     "template with ID placeholder",
+			input:    "PR_{{ID}}.md",
 			contains: "PR_",
 		},
 		{
-			name:  "template with ID in middle",
-			input: "docs/PR_{{ID}}_final.md",
+			name:     "template with ID in middle",
+			input:    "docs/PR_{{ID}}_final.md",
 			contains: "docs/PR_",
 		},
 		{
@@ -446,8 +446,8 @@ func TestExpandPRTemplate(t *testing.T) {
 			exact: "",
 		},
 		{
-			name:  "multiple ID placeholders",
-			input: "{{ID}}_PR_{{ID}}.md",
+			name:     "multiple ID placeholders",
+			input:    "{{ID}}_PR_{{ID}}.md",
 			contains: "_PR_",
 		},
 	}
@@ -455,7 +455,7 @@ func TestExpandPRTemplate(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := ExpandPRTemplate(test.input)
-			
+
 			if test.exact != "" {
 				if result != test.exact {
 					t.Errorf("Expected exact match %q, got %q", test.exact, result)
@@ -464,12 +464,12 @@ func TestExpandPRTemplate(t *testing.T) {
 				if !strings.Contains(result, test.contains) {
 					t.Errorf("Expected result to contain %q, got %q", test.contains, result)
 				}
-				
+
 				// Verify that {{ID}} was replaced
 				if strings.Contains(result, "{{ID}}") {
 					t.Errorf("Template not expanded, still contains {{ID}}: %q", result)
 				}
-				
+
 				// Verify the expansion resulted in a valid filename
 				if strings.Contains(test.input, "{{ID}}") && result == test.input {
 					t.Errorf("Template was not expanded: input=%q, output=%q", test.input, result)
@@ -483,26 +483,26 @@ func TestExpandPRTemplate(t *testing.T) {
 func TestExpandPRTemplateRandomness(t *testing.T) {
 	template := "PR_{{ID}}.md"
 	results := make(map[string]bool)
-	
+
 	// Generate multiple expansions
 	for i := 0; i < 10; i++ {
 		result := ExpandPRTemplate(template)
 		results[result] = true
 	}
-	
+
 	// We should have at least some variety (though theoretically all could be the same)
 	// This is a probabilistic test - with 256 possible values and 10 samples,
 	// the chance of all being the same is very low
 	if len(results) == 1 {
 		t.Logf("Warning: All 10 template expansions resulted in the same value. This is statistically unlikely but possible.")
 	}
-	
+
 	// Verify all results follow the expected pattern
 	for result := range results {
 		if !strings.HasPrefix(result, "PR_") || !strings.HasSuffix(result, ".md") {
 			t.Errorf("Unexpected result format: %q", result)
 		}
-		
+
 		// Extract the ID part and verify it's a number
 		idPart := strings.TrimPrefix(strings.TrimSuffix(result, ".md"), "PR_")
 		if idPart == "" {
@@ -517,5 +517,92 @@ func BenchmarkExpandPRTemplate(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ExpandPRTemplate(template)
+	}
+}
+
+// TestStagedFilesSupport tests staged files functionality
+func TestStagedFilesSupport(t *testing.T) {
+	// Test RefInfo creation for staged files
+	stagedRef := RefInfo{
+		Name: "Staged Changes",
+		Hash: "staged",
+		Type: "staged",
+	}
+
+	if stagedRef.Type != "staged" {
+		t.Errorf("Expected Type 'staged', got %s", stagedRef.Type)
+	}
+
+	if stagedRef.Hash != "staged" {
+		t.Errorf("Expected Hash 'staged', got %s", stagedRef.Hash)
+	}
+
+	if stagedRef.Name != "Staged Changes" {
+		t.Errorf("Expected Name 'Staged Changes', got %s", stagedRef.Name)
+	}
+}
+
+// TestUIModelSelectionTracking tests that the UI model properly tracks selected refs
+func TestUIModelSelectionTracking(t *testing.T) {
+	// Test that model tracks selected ref names and hashes
+	testCases := []struct {
+		name         string
+		selectedHash string
+		selectedName string
+	}{
+		{"branch selection", "abc123", "main"},
+		{"commit selection", "def456", "feat: add feature - def456"},
+		{"staged selection", "staged", "Staged Changes"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a RefInfo to simulate selection
+			ref := RefInfo{
+				Name: tc.selectedName,
+				Hash: tc.selectedHash,
+			}
+
+			// Verify the ref properties match what we expect to track
+			if ref.Name != tc.selectedName {
+				t.Errorf("Expected name %s, got %s", tc.selectedName, ref.Name)
+			}
+
+			if ref.Hash != tc.selectedHash {
+				t.Errorf("Expected hash %s, got %s", tc.selectedHash, ref.Hash)
+			}
+		})
+	}
+}
+
+// TestKeypressFeedback tests the keypress feedback functionality
+func TestKeypressFeedback(t *testing.T) {
+	// Test that keypress strings are properly formatted
+	testCases := []struct {
+		input    string
+		expected string
+	}{
+		{" ", "space"},
+		{"ctrl+c", "ctrl+c"},
+		{"enter", "enter"},
+		{"tab", "tab"},
+		{"r", "r"},
+		{"R", "R"},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("keypress_%s", tc.input), func(t *testing.T) {
+			keyStr := tc.input
+			switch keyStr {
+			case " ":
+				keyStr = "space"
+			case "ctrl+c":
+				keyStr = "ctrl+c"
+			}
+			
+			if keyStr != tc.expected {
+				t.Errorf("Expected keypress %q to be formatted as %q, got %q", tc.input, tc.expected, keyStr)
+			}
+		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/list"
@@ -32,21 +33,25 @@ const (
 
 // model represents the state of the TUI application.
 type model struct {
-	state            sessionState
-	repo             *GitRepo
-	currentRefList   list.Model
-	incomingRefList  list.Model
-	diffViewport     viewport.Model
-	resultViewport   viewport.Model
-	activeSide       refSide
-	selectedCurrent  string
-	selectedIncoming string
-	diff             string
-	commitMessage    string
-	prDescription    string
-	width            int
-	height           int
-	err              error
+	state               sessionState
+	repo                *GitRepo
+	currentRefList      list.Model
+	incomingRefList     list.Model
+	diffViewport        viewport.Model
+	resultViewport      viewport.Model
+	activeSide          refSide
+	selectedCurrent     string
+	selectedIncoming    string
+	selectedCurrentName string
+	selectedIncomingName string
+	diff                string
+	commitMessage       string
+	prDescription       string
+	width               int
+	height              int
+	err                 error
+	lastKeypress        string
+	keypressTimer       int
 }
 
 // refItem represents an item in the reference selection list.
@@ -90,12 +95,28 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.loadRefs(),
 		tea.EnterAltScreen,
+		tickCmd(),
 	)
 }
 
-// loadRefs loads the git references (branches and commits) into the model.
+// tickCmd returns a command that will send a tickMsg after a short delay
+func tickCmd() tea.Cmd {
+	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
+// loadRefs loads the git references (branches, commits, and staged files) into the model.
 func (m model) loadRefs() tea.Cmd {
 	return func() tea.Msg {
+		var items []list.Item
+
+		// Add staged files if they exist
+		stagedRef, err := m.repo.GetStagedRef()
+		if err == nil && stagedRef != nil {
+			items = append(items, refItem{ref: *stagedRef})
+		}
+
 		branches, err := m.repo.GetBranches()
 		if err != nil {
 			return errMsg{err}
@@ -106,7 +127,6 @@ func (m model) loadRefs() tea.Cmd {
 			return errMsg{err}
 		}
 
-		var items []list.Item
 		for _, branch := range branches {
 			items = append(items, refItem{ref: branch})
 		}
@@ -143,6 +163,9 @@ type llmResultMsg struct {
 	prDescription string
 }
 
+// tickMsg is sent periodically to update the keypress timer
+type tickMsg time.Time
+
 // Update handles messages and updates the model accordingly.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -153,15 +176,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		listWidth := m.width/2 - 2
-		listHeight := m.height - 4
+		// Adjust sizing to prevent cut-off - reserve more space for UI elements
+		listWidth := m.width/2 - 3
+		listHeight := m.height - 10 // Reserve more space for title, selections, status, and help
 
 		m.currentRefList.SetSize(listWidth, listHeight)
 		m.incomingRefList.SetSize(listWidth, listHeight)
 		m.diffViewport.Width = m.width - 4
-		m.diffViewport.Height = m.height - 6
+		m.diffViewport.Height = m.height - 8 // Reserve more space for navigation
 		m.resultViewport.Width = m.width - 4
-		m.resultViewport.Height = m.height - 6
+		m.resultViewport.Height = m.height - 8
+
+	case tickMsg:
+		// Update keypress timer
+		if m.keypressTimer > 0 {
+			m.keypressTimer--
+		} else {
+			m.lastKeypress = ""
+		}
+		return m, tickCmd()
 
 	case refsLoadedMsg:
 		m.currentRefList.SetItems(msg.items)
@@ -183,6 +216,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = resultView
 
 	case tea.KeyMsg:
+		// Record keypress for visual feedback
+		keyStr := msg.String()
+		switch keyStr {
+		case " ":
+			keyStr = "space"
+		case "ctrl+c":
+			keyStr = "ctrl+c"
+		}
+		m.lastKeypress = keyStr
+		m.keypressTimer = 10 // Show for 1 second (10 * 100ms)
+		
 		switch m.state {
 		case refSelectionView:
 			switch msg.String() {
@@ -194,20 +238,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.activeSide = currentSide
 				}
-			case "enter":
+			case "enter", " ":
 				if m.activeSide == currentSide {
 					if item, ok := m.currentRefList.SelectedItem().(refItem); ok {
 						m.selectedCurrent = item.ref.Hash
+						m.selectedCurrentName = item.ref.Name
 					}
 				} else {
 					if item, ok := m.incomingRefList.SelectedItem().(refItem); ok {
 						m.selectedIncoming = item.ref.Hash
+						m.selectedIncomingName = item.ref.Name
 					}
 				}
 
 				if m.selectedCurrent != "" && m.selectedIncoming != "" {
 					return m, m.generateDiff()
 				}
+			case "r":
+				// Reset selections
+				if m.activeSide == currentSide {
+					m.selectedCurrent = ""
+					m.selectedCurrentName = ""
+				} else {
+					m.selectedIncoming = ""
+					m.selectedIncomingName = ""
+				}
+			case "R":
+				// Reset all selections
+				m.selectedCurrent = ""
+				m.selectedIncoming = ""
+				m.selectedCurrentName = ""
+				m.selectedIncomingName = ""
 			}
 
 		case diffView:
@@ -258,7 +319,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // generateDiff generates a git diff between the selected references.
 func (m model) generateDiff() tea.Cmd {
 	return func() tea.Msg {
-		diff, err := m.repo.GetDiff(m.selectedCurrent, m.selectedIncoming)
+		var diff string
+		var err error
+
+		// Handle special cases for staged files
+		if m.selectedCurrent == "staged" {
+			diff, err = m.repo.GetStagedDiff()
+		} else if m.selectedIncoming == "staged" {
+			diff, err = m.repo.GetStagedDiff()
+		} else {
+			diff, err = m.repo.GetDiff(m.selectedCurrent, m.selectedIncoming)
+		}
+
 		if err != nil {
 			return errMsg{err}
 		}
@@ -359,6 +431,7 @@ func (m model) refSelectionView() string {
 
 	b.WriteString(title + "\n\n")
 
+	// Create styles for the lists
 	currentStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder())
 	incomingStyle := lipgloss.NewStyle().Border(lipgloss.NormalBorder())
 
@@ -368,13 +441,64 @@ func (m model) refSelectionView() string {
 		incomingStyle = incomingStyle.BorderForeground(lipgloss.Color("205"))
 	}
 
+	// Add title with selected indicator for current ref
+	currentTitle := "Current Ref"
+	if m.selectedCurrentName != "" {
+		selectedStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("46")).
+			Bold(true)
+		currentTitle += "\n" + selectedStyle.Render("✓ Selected: "+m.selectedCurrentName)
+	}
+	m.currentRefList.Title = currentTitle
+
+	// Add title with selected indicator for incoming ref
+	incomingTitle := "Incoming Ref"
+	if m.selectedIncomingName != "" {
+		selectedStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("46")).
+			Bold(true)
+		incomingTitle += "\n" + selectedStyle.Render("✓ Selected: "+m.selectedIncomingName)
+	}
+	m.incomingRefList.Title = incomingTitle
+
 	currentView := currentStyle.Render(m.currentRefList.View())
 	incomingView := incomingStyle.Render(m.incomingRefList.View())
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, currentView, "  ", incomingView)
 	b.WriteString(content)
 
-	b.WriteString("\n\nTab: Switch sides | Enter: Select | q: Quit")
+	// Show status and help
+	var statusMsg string
+	if m.selectedCurrentName != "" && m.selectedIncomingName != "" {
+		statusMsg = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("46")).
+			Bold(true).
+			Render("✓ Ready to generate diff! Press Enter to continue.")
+	} else {
+		missing := []string{}
+		if m.selectedCurrentName == "" {
+			missing = append(missing, "current ref")
+		}
+		if m.selectedIncomingName == "" {
+			missing = append(missing, "incoming ref")
+		}
+		statusMsg = fmt.Sprintf("Select %s to continue", strings.Join(missing, " and "))
+	}
+
+	b.WriteString("\n\n" + statusMsg)
+	
+	// Add keypress feedback
+	helpLine := "Tab: Switch sides | Enter/Space: Select | r: Reset current | R: Reset all | q: Quit"
+	if m.lastKeypress != "" && m.keypressTimer > 0 {
+		keypressStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("226")).
+			Bold(true).
+			Background(lipgloss.Color("235"))
+		keyFeedback := keypressStyle.Render(fmt.Sprintf(" Key: %s ", m.lastKeypress))
+		helpLine = keyFeedback + " | " + helpLine
+	}
+	
+	b.WriteString("\n\n" + helpLine)
 
 	return b.String()
 }
@@ -390,7 +514,19 @@ func (m model) diffView() string {
 
 	b.WriteString(title + "\n\n")
 	b.WriteString(m.diffViewport.View())
-	b.WriteString("\n\nj/k: Scroll | g: Generate commit & PR | b: Back | q: Quit")
+	
+	// Add keypress feedback
+	helpLine := "j/k: Scroll | g: Generate commit & PR | b: Back | q: Quit"
+	if m.lastKeypress != "" && m.keypressTimer > 0 {
+		keypressStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("226")).
+			Bold(true).
+			Background(lipgloss.Color("235"))
+		keyFeedback := keypressStyle.Render(fmt.Sprintf(" Key: %s ", m.lastKeypress))
+		helpLine = keyFeedback + " | " + helpLine
+	}
+	
+	b.WriteString("\n\n" + helpLine)
 
 	return b.String()
 }
@@ -406,7 +542,19 @@ func (m model) resultView() string {
 
 	b.WriteString(title + "\n\n")
 	b.WriteString(m.resultViewport.View())
-	b.WriteString("\n\nc: Copy commit | p: Save PR | d: Back to diff | q: Quit")
+	
+	// Add keypress feedback
+	helpLine := "c: Copy commit | p: Save PR | d: Back to diff | q: Quit"
+	if m.lastKeypress != "" && m.keypressTimer > 0 {
+		keypressStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("226")).
+			Bold(true).
+			Background(lipgloss.Color("235"))
+		keyFeedback := keypressStyle.Render(fmt.Sprintf(" Key: %s ", m.lastKeypress))
+		helpLine = keyFeedback + " | " + helpLine
+	}
+	
+	b.WriteString("\n\n" + helpLine)
 
 	return b.String()
 }
