@@ -75,4 +75,8 @@ You can also specify a PR template file using the `--pr-template` flag.
 
 ## TODO
 
-1.
+1. Setup command
+2. Theme fetching (base16/tinted-theming)
+    - Default themes: Nord, Atom, Catppuccin, Rosé Pine (embedded in binary)
+3. File Tree Viewer
+4. Horizontal pager for diffs (file-by-file)

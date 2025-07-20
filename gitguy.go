@@ -24,6 +24,14 @@ var (
 	apiKey         string
 	prTemplate     string
 	model          string
+	
+	// diff command flags
+	sideBySide       bool
+	unified          bool
+	staged           bool
+	unstaged         bool
+	syntaxHighlight  bool
+	showWhitespace   bool
 )
 
 // main is the entry point of the application.
@@ -38,6 +46,13 @@ func main() {
 		RunE:  run,
 	}
 
+	var diffCmd = &cobra.Command{
+		Use:   "diff",
+		Short: "Show git diff with syntax highlighting",
+		Long:  "Display git diff in side-by-side or unified format with syntax highlighting",
+		RunE:  runDiff,
+	}
+
 	rootCmd.Flags().StringVar(&refCurrent, "ref-current", "", "Current Git ref (branch or commit SHA)")
 	rootCmd.Flags().StringVar(&refIncoming, "ref-incoming", "", "Incoming Git ref (branch or commit SHA)")
 	rootCmd.Flags().StringVar(&outPR, "out-pr", templateVar, "Output file for PR description")
@@ -46,6 +61,14 @@ func main() {
 	rootCmd.Flags().StringVar(&prTemplate, "pr-template", "", "Path to PR template markdown file")
 	rootCmd.Flags().StringVar(&model, "model", app.DeepseekV3.String(), "LLM model to use (deepseek-v3, deepseek-r1, deepseek-r1-0528, kimi-k2)")
 
+	// diff command flags
+	diffCmd.Flags().BoolVar(&sideBySide, "side-by-side", true, "Display diff in side-by-side format")
+	diffCmd.Flags().BoolVar(&unified, "unified", false, "Display diff in unified format")
+	diffCmd.Flags().BoolVar(&staged, "staged", false, "Show staged changes")
+	diffCmd.Flags().BoolVar(&unstaged, "unstaged", false, "Show unstaged changes")
+	diffCmd.Flags().BoolVar(&syntaxHighlight, "syntax-highlighting", true, "Enable syntax highlighting")
+	diffCmd.Flags().BoolVar(&showWhitespace, "whitespace", false, "Show whitespace changes (default: false)")
+
 	viper.BindPFlag("ref-current", rootCmd.Flags().Lookup("ref-current"))
 	viper.BindPFlag("ref-incoming", rootCmd.Flags().Lookup("ref-incoming"))
 	viper.BindPFlag("out-pr", rootCmd.Flags().Lookup("out-pr"))
@@ -53,6 +76,8 @@ func main() {
 	viper.BindPFlag("api-key", rootCmd.Flags().Lookup("api-key"))
 	viper.BindPFlag("pr-template", rootCmd.Flags().Lookup("pr-template"))
 	viper.BindPFlag("model", rootCmd.Flags().Lookup("model"))
+
+	rootCmd.AddCommand(diffCmd)
 
 	viper.AutomaticEnv()
 
@@ -153,5 +178,54 @@ func runInteractive(_ context.Context) error {
 
 	p := tea.NewProgram(app.Init(), tea.WithAltScreen())
 	_, err := p.Run()
+	return err
+}
+
+// runDiff executes the diff command with the specified options.
+func runDiff(cmd *cobra.Command, args []string) error {
+	repo, err := app.OpenRepo(".")
+	if err != nil {
+		return fmt.Errorf("not in a git repository: %w", err)
+	}
+
+	// Determine what diff to show based on flags
+	var diffContent string
+	if staged {
+		diffContent, err = repo.GetStagedDiff()
+		if err != nil {
+			return fmt.Errorf("failed to get staged diff: %w", err)
+		}
+		if strings.TrimSpace(diffContent) == "" {
+			return fmt.Errorf("no staged changes found")
+		}
+	} else if unstaged {
+		diffContent, err = repo.GetUnstagedDiff()
+		if err != nil {
+			return fmt.Errorf("failed to get unstaged diff: %w", err)
+		}
+		if strings.TrimSpace(diffContent) == "" {
+			return fmt.Errorf("no unstaged changes found")
+		}
+	} else {
+		// Default: try unstaged first, then staged
+		diffContent, err = repo.GetUnstagedDiff()
+		if err == nil && strings.TrimSpace(diffContent) != "" {
+			// Found unstaged changes
+		} else {
+			// Try staged changes
+			diffContent, err = repo.GetStagedDiff()
+			if err != nil {
+				return fmt.Errorf("failed to get diff: %w", err)
+			}
+			if strings.TrimSpace(diffContent) == "" {
+				return fmt.Errorf("no changes found (neither staged nor unstaged)")
+			}
+		}
+	}
+
+	// Create and run the diff viewer
+	diffViewer := app.NewDiffViewer(diffContent, sideBySide, syntaxHighlight, showWhitespace)
+	p := tea.NewProgram(diffViewer, tea.WithAltScreen())
+	_, err = p.Run()
 	return err
 }

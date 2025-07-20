@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/bluekeyes/go-gitdiff/gitdiff"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -183,7 +184,7 @@ func (g *GitRepo) GetWorkingTreeDiff() (string, error) {
 	return diff.String(), nil
 }
 
-// GetStagedDiff generates a diff between HEAD and staged files.
+// GetStagedDiff generates a diff between HEAD and staged files using go-gitdiff for parsing.
 func (g *GitRepo) GetStagedDiff() (string, error) {
 	// First check if there are any staged changes
 	hasStagedChanges, err := g.HasStagedChanges()
@@ -195,7 +196,7 @@ func (g *GitRepo) GetStagedDiff() (string, error) {
 		return "", nil
 	}
 
-	// Use git CLI to get staged diff since go-git's index handling is complex
+	// Use git CLI to get raw staged diff
 	worktree, err := g.repo.Worktree()
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree: %w", err)
@@ -213,6 +214,44 @@ func (g *GitRepo) GetStagedDiff() (string, error) {
 	}
 
 	return string(output), nil
+}
+
+// GetParsedStagedDiff returns parsed staged diff files using go-gitdiff.
+func (g *GitRepo) GetParsedStagedDiff() ([]*gitdiff.File, error) {
+	rawDiff, err := g.GetStagedDiff()
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(rawDiff) == "" {
+		return nil, nil
+	}
+
+	files, _, err := gitdiff.Parse(strings.NewReader(rawDiff))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse staged diff: %w", err)
+	}
+
+	return files, nil
+}
+
+// GetParsedUnstagedDiff returns parsed unstaged diff files using go-gitdiff.
+func (g *GitRepo) GetParsedUnstagedDiff() ([]*gitdiff.File, error) {
+	rawDiff, err := g.GetUnstagedDiff()
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(rawDiff) == "" {
+		return nil, nil
+	}
+
+	files, _, err := gitdiff.Parse(strings.NewReader(rawDiff))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse unstaged diff: %w", err)
+	}
+
+	return files, nil
 }
 
 // HasStagedChanges checks if there are any staged changes in the repository.
@@ -252,4 +291,25 @@ func (g *GitRepo) GetStagedRef() (*RefInfo, error) {
 		Hash: "staged",
 		Type: "staged",
 	}, nil
+}
+
+// GetUnstagedDiff generates a diff of unstaged changes (working tree vs HEAD).
+func (g *GitRepo) GetUnstagedDiff() (string, error) {
+	worktree, err := g.repo.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	workdir := worktree.Filesystem.Root()
+	
+	// Run git diff to get unstaged changes
+	cmd := exec.Command("git", "diff")
+	cmd.Dir = workdir
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get unstaged diff: %w", err)
+	}
+
+	return string(output), nil
 }

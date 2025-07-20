@@ -33,25 +33,25 @@ const (
 
 // model represents the state of the TUI application.
 type model struct {
-	state               sessionState
-	repo                *GitRepo
-	currentRefList      list.Model
-	incomingRefList     list.Model
-	diffViewport        viewport.Model
-	resultViewport      viewport.Model
-	activeSide          refSide
-	selectedCurrent     string
-	selectedIncoming    string
-	selectedCurrentName string
+	state                sessionState
+	repo                 *GitRepo
+	currentRefList       list.Model
+	incomingRefList      list.Model
+	diffViewport         viewport.Model
+	resultViewport       viewport.Model
+	activeSide           refSide
+	selectedCurrent      string
+	selectedIncoming     string
+	selectedCurrentName  string
 	selectedIncomingName string
-	diff                string
-	commitMessage       string
-	prDescription       string
-	width               int
-	height              int
-	err                 error
-	lastKeypress        string
-	keypressTimer       int
+	diff                 string
+	commitMessage        string
+	prDescription        string
+	width                int
+	height               int
+	err                  error
+	lastKeypress         string
+	keypressTimer        int
 }
 
 // refItem represents an item in the reference selection list.
@@ -226,7 +226,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.lastKeypress = keyStr
 		m.keypressTimer = 10 // Show for 1 second (10 * 100ms)
-		
+
 		switch m.state {
 		case refSelectionView:
 			switch msg.String() {
@@ -385,7 +385,6 @@ head: %s
 
 		content := frontMatter + m.prDescription
 
-		// Atomic write
 		tempFile := filename + ".tmp"
 		err := os.WriteFile(tempFile, []byte(content), 0644)
 		if err != nil {
@@ -486,7 +485,7 @@ func (m model) refSelectionView() string {
 	}
 
 	b.WriteString("\n\n" + statusMsg)
-	
+
 	// Add keypress feedback
 	helpLine := "Tab: Switch sides | Enter/Space: Select | r: Reset current | R: Reset all | q: Quit"
 	if m.lastKeypress != "" && m.keypressTimer > 0 {
@@ -495,9 +494,9 @@ func (m model) refSelectionView() string {
 			Bold(true).
 			Background(lipgloss.Color("235"))
 		keyFeedback := keypressStyle.Render(fmt.Sprintf(" Key: %s ", m.lastKeypress))
-		helpLine = keyFeedback + " | " + helpLine
+		helpLine = helpLine + "\n" + keyFeedback
 	}
-	
+
 	b.WriteString("\n\n" + helpLine)
 
 	return b.String()
@@ -514,8 +513,7 @@ func (m model) diffView() string {
 
 	b.WriteString(title + "\n\n")
 	b.WriteString(m.diffViewport.View())
-	
-	// Add keypress feedback
+
 	helpLine := "j/k: Scroll | g: Generate commit & PR | b: Back | q: Quit"
 	if m.lastKeypress != "" && m.keypressTimer > 0 {
 		keypressStyle := lipgloss.NewStyle().
@@ -523,9 +521,9 @@ func (m model) diffView() string {
 			Bold(true).
 			Background(lipgloss.Color("235"))
 		keyFeedback := keypressStyle.Render(fmt.Sprintf(" Key: %s ", m.lastKeypress))
-		helpLine = keyFeedback + " | " + helpLine
+		helpLine = helpLine + "\n" + keyFeedback
 	}
-	
+
 	b.WriteString("\n\n" + helpLine)
 
 	return b.String()
@@ -542,7 +540,7 @@ func (m model) resultView() string {
 
 	b.WriteString(title + "\n\n")
 	b.WriteString(m.resultViewport.View())
-	
+
 	// Add keypress feedback
 	helpLine := "c: Copy commit | p: Save PR | d: Back to diff | q: Quit"
 	if m.lastKeypress != "" && m.keypressTimer > 0 {
@@ -551,9 +549,9 @@ func (m model) resultView() string {
 			Bold(true).
 			Background(lipgloss.Color("235"))
 		keyFeedback := keypressStyle.Render(fmt.Sprintf(" Key: %s ", m.lastKeypress))
-		helpLine = keyFeedback + " | " + helpLine
+		helpLine = helpLine + "\n" + keyFeedback
 	}
-	
+
 	b.WriteString("\n\n" + helpLine)
 
 	return b.String()
