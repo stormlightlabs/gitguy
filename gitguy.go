@@ -189,42 +189,47 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine what diff to show based on flags
-	var diffContent string
+	var fileDiffs []app.FileDiff
+	
 	if staged {
-		diffContent, err = repo.GetStagedDiff()
+		fileDiffs, err = repo.GetStagedFileDiffs()
 		if err != nil {
 			return fmt.Errorf("failed to get staged diff: %w", err)
 		}
-		if strings.TrimSpace(diffContent) == "" {
+		if len(fileDiffs) == 0 {
 			return fmt.Errorf("no staged changes found")
 		}
 	} else if unstaged {
-		diffContent, err = repo.GetUnstagedDiff()
+		fileDiffs, err = repo.GetUnstagedFileDiffs()
 		if err != nil {
 			return fmt.Errorf("failed to get unstaged diff: %w", err)
 		}
-		if strings.TrimSpace(diffContent) == "" {
+		if len(fileDiffs) == 0 {
 			return fmt.Errorf("no unstaged changes found")
 		}
 	} else {
 		// Default: try unstaged first, then staged
-		diffContent, err = repo.GetUnstagedDiff()
-		if err == nil && strings.TrimSpace(diffContent) != "" {
+		fileDiffs, err = repo.GetUnstagedFileDiffs()
+		if err == nil && len(fileDiffs) > 0 {
 			// Found unstaged changes
 		} else {
 			// Try staged changes
-			diffContent, err = repo.GetStagedDiff()
+			fileDiffs, err = repo.GetStagedFileDiffs()
 			if err != nil {
 				return fmt.Errorf("failed to get diff: %w", err)
 			}
-			if strings.TrimSpace(diffContent) == "" {
+			if len(fileDiffs) == 0 {
 				return fmt.Errorf("no changes found (neither staged nor unstaged)")
 			}
 		}
 	}
 
+	// Combine all file diffs and get primary filename for syntax highlighting
+	diffContent := app.CombineFileDiffs(fileDiffs)
+	primaryFilename := app.GetPrimaryFilename(fileDiffs)
+
 	// Create and run the diff viewer
-	diffViewer := app.NewDiffViewer(diffContent, sideBySide, syntaxHighlight, showWhitespace)
+	diffViewer := app.NewDiffViewer(diffContent, primaryFilename, sideBySide, syntaxHighlight, showWhitespace)
 	p := tea.NewProgram(diffViewer, tea.WithAltScreen())
 	_, err = p.Run()
 	return err

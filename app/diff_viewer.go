@@ -52,6 +52,13 @@ type LineMapping struct {
 	LogicalLine int
 }
 
+// FileDiff represents a diff for a single file with its associated metadata
+type FileDiff struct {
+	Filename string
+	Content  string
+	Edits    []udiff.Edit
+}
+
 // DiffViewer represents the diff viewer model
 type DiffViewer struct {
 	leftViewport    viewport.Model
@@ -59,6 +66,7 @@ type DiffViewer struct {
 	unifiedViewport viewport.Model
 
 	content         string
+	filename        string // Add filename field for proper syntax highlighting
 	syntaxHighlight bool
 	showWhitespace  bool
 	width           int
@@ -83,11 +91,11 @@ func NewDiffViewerFromEdits(edits []udiff.Edit, filename, originalContent string
 		// Fallback to empty content if conversion fails
 		content = ""
 	}
-	return NewDiffViewer(content, sideBySide, syntaxHighlight, showWhitespace)
+	return NewDiffViewer(content, filename, sideBySide, syntaxHighlight, showWhitespace)
 }
 
 // NewDiffViewer creates a new diff viewer with the given content and options
-func NewDiffViewer(content string, sideBySide, syntaxHighlight, showWhitespace bool) *DiffViewer {
+func NewDiffViewer(content, filename string, sideBySide, syntaxHighlight, showWhitespace bool) *DiffViewer {
 	leftVp := viewport.New(0, 0)
 	rightVp := viewport.New(0, 0)
 	unifiedVp := viewport.New(0, 0)
@@ -102,6 +110,7 @@ func NewDiffViewer(content string, sideBySide, syntaxHighlight, showWhitespace b
 		rightViewport:   rightVp,
 		unifiedViewport: unifiedVp,
 		content:         content,
+		filename:        filename,
 		syntaxHighlight: syntaxHighlight,
 		showWhitespace:  showWhitespace,
 		mode:            mode,
@@ -335,6 +344,7 @@ func (dv *DiffViewer) renderDiff() {
 		// Render unified view - just display the content as-is
 		content := dv.content
 		if dv.syntaxHighlight {
+			// For unified diff view, use diff highlighting
 			content = dv.applySyntaxHighlighting(content, "diff")
 		}
 		dv.unifiedViewport.SetContent(content)
@@ -446,7 +456,7 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 
 				// Apply syntax highlighting if enabled
 				if dv.syntaxHighlight {
-					content = dv.applySyntaxHighlighting(content, "go")
+					content = dv.applySyntaxHighlighting(content, dv.filename)
 				}
 
 				deleteLineNumStyle := lipgloss.NewStyle().
@@ -477,7 +487,7 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 
 				// Apply syntax highlighting if enabled
 				if dv.syntaxHighlight {
-					content = dv.applySyntaxHighlighting(content, "go")
+					content = dv.applySyntaxHighlighting(content, dv.filename)
 				}
 
 				addLineNumStyle := lipgloss.NewStyle().
@@ -521,7 +531,7 @@ func (dv *DiffViewer) renderSideBySidePanes() {
 
 			// Apply syntax highlighting if enabled
 			if dv.syntaxHighlight {
-				content = dv.applySyntaxHighlighting(content, "go")
+				content = dv.applySyntaxHighlighting(content, dv.filename)
 			}
 
 			// Style for context lines
@@ -749,7 +759,7 @@ func (dv *DiffViewer) buildSideBySideLines(edits []udiff.Edit, originalLines, _ 
 			if originalOffset < len(originalLines) {
 				line := originalLines[originalOffset]
 				if dv.syntaxHighlight {
-					line = dv.applySyntaxHighlighting(line, getFileExtension(edit.Start))
+					line = dv.applySyntaxHighlighting(line, dv.filename)
 				}
 				leftLines = append(leftLines, " "+line)
 				rightLines = append(rightLines, " "+line)
@@ -812,9 +822,29 @@ func countLines(lines []string, offset int) int {
 }
 
 // Helper function to get file extension for syntax highlighting
-func getFileExtension(_ int) string {
-	// This is a placeholder - in a real implementation you'd pass the filename
-	return "txt"
+func getFileExtension(filename string) string {
+	if filename == "" {
+		return "txt"
+	}
+	
+	// Extract the file extension
+	ext := filepath.Ext(filename)
+	if len(ext) > 1 {
+		return ext[1:] // Remove the dot
+	}
+	
+	// Handle special cases for files without extensions
+	base := filepath.Base(filename)
+	switch base {
+	case "Dockerfile":
+		return "dockerfile"
+	case "Makefile", "makefile":
+		return "make"
+	case "Justfile", "justfile":
+		return "just"
+	default:
+		return "txt"
+	}
 }
 
 // fitToWidth ensures text fits exactly within the specified width

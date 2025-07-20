@@ -151,6 +151,42 @@ func (g *GitRepo) GetDiff(from, to string) (string, error) {
 }
 
 
+// GetStagedFileDiffs returns individual file diffs for staged changes
+func (g *GitRepo) GetStagedFileDiffs() ([]FileDiff, error) {
+	hasStagedChanges, err := g.HasStagedChanges()
+	if err != nil {
+		return nil, err
+	}
+
+	if !hasStagedChanges {
+		return nil, nil
+	}
+
+	stagedFiles, err := g.GetStagedFilePaths()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get staged files: %w", err)
+	}
+
+	var fileDiffs []FileDiff
+	for _, filename := range stagedFiles {
+		edits, err := g.GetStagedFileEdits(filename)
+		if err != nil {
+			continue // Skip files we can't diff
+		}
+		
+		if len(edits) > 0 {
+			unifiedDiff := g.formatEditsAsUnifiedDiff(edits, filename)
+			fileDiffs = append(fileDiffs, FileDiff{
+				Filename: filename,
+				Content:  unifiedDiff,
+				Edits:    edits,
+			})
+		}
+	}
+
+	return fileDiffs, nil
+}
+
 // GetStagedDiff generates a diff between HEAD and staged files
 func (g *GitRepo) GetStagedDiff() (string, error) {
 	hasStagedChanges, err := g.HasStagedChanges()
@@ -220,6 +256,37 @@ func (g *GitRepo) GetStagedRef() (*RefInfo, error) {
 		Hash: "staged",
 		Type: "staged",
 	}, nil
+}
+
+// GetUnstagedFileDiffs returns individual file diffs for unstaged changes
+func (g *GitRepo) GetUnstagedFileDiffs() ([]FileDiff, error) {
+	unstagedFiles, err := g.GetUnstagedFilePaths()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get unstaged files: %w", err)
+	}
+
+	if len(unstagedFiles) == 0 {
+		return nil, nil
+	}
+
+	var fileDiffs []FileDiff
+	for _, filename := range unstagedFiles {
+		edits, err := g.GetUnstagedFileEdits(filename)
+		if err != nil {
+			continue // Skip files we can't diff
+		}
+		
+		if len(edits) > 0 {
+			unifiedDiff := g.formatEditsAsUnifiedDiff(edits, filename)
+			fileDiffs = append(fileDiffs, FileDiff{
+				Filename: filename,
+				Content:  unifiedDiff,
+				Edits:    edits,
+			})
+		}
+	}
+
+	return fileDiffs, nil
 }
 
 // GetUnstagedDiff generates a diff of unstaged changes (working tree vs HEAD).
@@ -458,4 +525,26 @@ func (g *GitRepo) formatEditsAsUnifiedDiff(edits []udiff.Edit, filename string) 
 	}
 
 	return unifiedDiff
+}
+
+// GetPrimaryFilename returns the first filename from a list of FileDiffs, or a default
+func GetPrimaryFilename(fileDiffs []FileDiff) string {
+	if len(fileDiffs) == 0 {
+		return "mixed_files"
+	}
+	return fileDiffs[0].Filename
+}
+
+// CombineFileDiffs combines multiple FileDiff objects into a single unified diff string
+func CombineFileDiffs(fileDiffs []FileDiff) string {
+	if len(fileDiffs) == 0 {
+		return ""
+	}
+	
+	var combined strings.Builder
+	for _, fileDiff := range fileDiffs {
+		combined.WriteString(fileDiff.Content)
+	}
+	
+	return combined.String()
 }
